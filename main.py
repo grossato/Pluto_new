@@ -125,6 +125,7 @@ class PlutoApp(tk.Tk):
         edit_menu = tk.Menu(menubar, tearoff=0)
         edit_menu.add_command(label="Undo Stroke (Ctrl+Z)", command=self.undo_mask)
         edit_menu.add_command(label="Clear Current Mask", command=self.clear_current_mask)
+        edit_menu.add_command(label="Clear All Masks", command=self.clear_all_masks)
         menubar.add_cascade(label="Edit", menu=edit_menu)
 
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -163,6 +164,8 @@ class PlutoApp(tk.Tk):
         btn_undo.pack(side=tk.LEFT, padx=4)
         btn_clear = ttk.Button(toolbar, text="✖ Clear Mask", command=self.clear_current_mask, width=11)
         btn_clear.pack(side=tk.LEFT, padx=4)
+        btn_clear_all = ttk.Button(toolbar, text="🗑️ Clear All", command=self.clear_all_masks, width=10)
+        btn_clear_all.pack(side=tk.LEFT, padx=4)
 
         # Save button in toolbar
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
@@ -654,6 +657,23 @@ class PlutoApp(tk.Tk):
             self.masks[idx] = np.zeros((H, W), dtype=np.uint8)
             self.update_slice_view()
             self.set_status(f"Cleared mask on slice {idx}.")
+
+    def clear_all_masks(self):
+        """Clear all generated masks across the entire image stack with user confirmation."""
+        active_count = len([k for k, m in self.masks.items() if np.any(m > 0)])
+        if active_count == 0:
+            messagebox.showinfo("No Masks", "There are currently no masks to clear.")
+            return
+
+        if messagebox.askyesno(
+            "Clear All Masks",
+            f"Are you sure you want to clear all {active_count} mask(s) across the entire stack?\n\n"
+            "This will reset all masks to empty."
+        ):
+            self.masks.clear()
+            self.mask_history.clear()
+            self.update_slice_view()
+            self.set_status(f"Cleared all {active_count} mask(s) across the stack.")
 
     def on_canvas_press(self, event):
         if self.stack is None:

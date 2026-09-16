@@ -12,6 +12,7 @@ An interactive desktop application for semi-automatic 3D image stack segmentatio
   - Scrub through slices with the slider, Left/Right arrow keys, or mouse wheel.
   - Zoom and Pan navigation (Zoom In/Out buttons, or right-click drag to pan).
   - Manual mask drawing tools: **Brush**, **Lasso / Polygon**, and **Eraser** with adjustable radius.
+  - Mask management: **Undo (Ctrl+Z)**, **Clear Current Mask**, and **Clear All Masks** (with confirmation).
   - Real-time translucent mask overlay with adjustable opacity.
 - **Adaptive Segmentation Propagation**:
   - Propagates segmentation across consecutive slices using the `pluto.py` algorithm:
