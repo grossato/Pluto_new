@@ -69,6 +69,8 @@ class PlutoApp(tk.Tk):
         self.max_iter_var = tk.IntVar(value=40)
         self.start_slice_var = tk.IntVar(value=0)
         self.end_slice_var = tk.IntVar(value=0)
+        self._syncing_slice: bool = False
+        self.start_slice_var.trace_add("write", self._on_start_slice_changed)
 
         # Execution State
         self.is_running: bool = False
@@ -229,7 +231,14 @@ class PlutoApp(tk.Tk):
         range_frame = ttk.Frame(exec_group)
         range_frame.pack(fill=tk.X, pady=2)
         ttk.Label(range_frame, text="From:").pack(side=tk.LEFT)
-        spin_start = ttk.Spinbox(range_frame, from_=0, to=9999, textvariable=self.start_slice_var, width=5)
+        spin_start = ttk.Spinbox(
+            range_frame,
+            from_=0,
+            to=9999,
+            textvariable=self.start_slice_var,
+            width=5,
+            command=self._on_start_spin_clicked
+        )
         spin_start.pack(side=tk.LEFT, padx=4)
         ttk.Label(range_frame, text="To:").pack(side=tk.LEFT, padx=(6, 0))
         self.spin_end = ttk.Spinbox(range_frame, from_=0, to=9999, textvariable=self.end_slice_var, width=5)
@@ -371,15 +380,36 @@ class PlutoApp(tk.Tk):
 
         # Update controls
         self.lbl_folder.config(text=f"📂 {folder_name} ({self.num_slices} slices)")
+        self._syncing_slice = True
         self.scrub_slider.config(from_=0, to=self.num_slices - 1)
         self.scrub_slider.set(0)
         self.start_slice_var.set(0)
         self.end_slice_var.set(self.num_slices - 1)
         self.spin_end.config(to=self.num_slices - 1)
+        self._syncing_slice = False
 
         self.zoom_reset()
         self.update_slice_view()
         self.set_status(f"Loaded {self.num_slices} slices from '{folder_name}'.")
+
+    def _on_start_slice_changed(self, *args):
+        """Update current displayed slice when user alters start_slice_var."""
+        if getattr(self, "_syncing_slice", False):
+            return
+        try:
+            val = self.start_slice_var.get()
+        except (tk.TclError, ValueError):
+            return
+        if self.stack is not None and 0 <= val < self.num_slices:
+            if val != self.current_slice_idx:
+                self._syncing_slice = True
+                self.current_slice_idx = val
+                self.scrub_slider.set(val)
+                self.update_slice_view()
+                self._syncing_slice = False
+
+    def _on_start_spin_clicked(self):
+        self.after_idle(self._on_start_slice_changed)
 
     def update_slice_view(self):
         if self.stack is None:
@@ -406,12 +436,22 @@ class PlutoApp(tk.Tk):
         if self.stack is not None and self.current_slice_idx > 0:
             self.current_slice_idx -= 1
             self.scrub_slider.set(self.current_slice_idx)
+            if not self.is_running and not self.is_paused_for_manual:
+                if not getattr(self, "_syncing_slice", False):
+                    self._syncing_slice = True
+                    self.start_slice_var.set(self.current_slice_idx)
+                    self._syncing_slice = False
             self.update_slice_view()
 
     def next_slice(self):
         if self.stack is not None and self.current_slice_idx < self.num_slices - 1:
             self.current_slice_idx += 1
             self.scrub_slider.set(self.current_slice_idx)
+            if not self.is_running and not self.is_paused_for_manual:
+                if not getattr(self, "_syncing_slice", False):
+                    self._syncing_slice = True
+                    self.start_slice_var.set(self.current_slice_idx)
+                    self._syncing_slice = False
             self.update_slice_view()
 
     def on_scrub_slider(self, val):
@@ -420,6 +460,11 @@ class PlutoApp(tk.Tk):
         new_idx = int(float(val))
         if new_idx != self.current_slice_idx and 0 <= new_idx < self.num_slices:
             self.current_slice_idx = new_idx
+            if not self.is_running and not self.is_paused_for_manual:
+                if not getattr(self, "_syncing_slice", False):
+                    self._syncing_slice = True
+                    self.start_slice_var.set(new_idx)
+                    self._syncing_slice = False
             self.update_slice_view()
 
     # =========================================================================
@@ -805,7 +850,10 @@ class PlutoApp(tk.Tk):
         """
         Handle empty mask:
         - Pause execution immediately.
-        - Notify user with options: 'Stop execution' OR 'Segment by hand'.
+        - Ask user to choose between:
+          1. Segment current slice by hand.
+          2. Go back {n} images and segment that image, where n is selected by the user.
+          3. End the program there.
         """
         self.is_running = False
         self.current_slice_idx = slice_idx
@@ -813,11 +861,12 @@ class PlutoApp(tk.Tk):
         self.update_slice_view()
 
         fname = self.filenames[slice_idx] if slice_idx < len(self.filenames) else f"Slice {slice_idx}"
+        max_back = max(1, slice_idx)
 
-        # Create Custom Dialog with explicit choices: Stop vs Segment by hand
         dialog = tk.Toplevel(self)
         dialog.title("Empty Mask Encountered")
-        dialog.geometry("460x220")
+        dialog.geometry("540x380")
+        dialog.resizable(False, False)
         dialog.transient(self)
         dialog.grab_set()
 
@@ -829,62 +878,142 @@ class PlutoApp(tk.Tk):
             text=f"⚠️ Empty mask encountered at Slice {slice_idx} ({fname})!",
             font=("Segoe UI", 10, "bold"),
             foreground="#cc0000"
-        ).pack(anchor=tk.W, pady=(0, 6))
+        ).pack(anchor=tk.W, pady=(0, 4))
 
         ttk.Label(
             frame,
             text=f"Reason: {reason}\n\nPlease choose how to proceed:",
-            wraplength=420
-        ).pack(anchor=tk.W, pady=(0, 14))
+            wraplength=500
+        ).pack(anchor=tk.W, pady=(0, 8))
 
-        choice_var = tk.StringVar(value="")
+        choice_var = tk.StringVar(value="stop")
+        back_n_var = tk.IntVar(value=min(1, max_back))
 
         def choose(choice):
             choice_var.set(choice)
             dialog.destroy()
 
-        btn_frame = ttk.Frame(frame)
-        btn_frame.pack(fill=tk.X, pady=8)
-
+        # --- Option 1: Segment current slice by hand ---
+        opt1_frame = ttk.LabelFrame(frame, text="Option 1: Segment Current Image by Hand", padding=8)
+        opt1_frame.pack(fill=tk.X, pady=4)
         btn_manual = ttk.Button(
-            btn_frame,
-            text="✏️ Segment by Hand",
-            command=lambda: choose("manual"),
-            style="Accent.TButton",
-            width=20
+            opt1_frame,
+            text=f"✏️ Segment Slice {slice_idx} by Hand",
+            command=lambda: choose("manual_current"),
+            style="Accent.TButton"
         )
-        btn_manual.pack(side=tk.LEFT, padx=6, expand=True)
+        btn_manual.pack(fill=tk.X)
 
-        btn_stop = ttk.Button(
-            btn_frame,
-            text="⏹ Stop Execution",
-            command=lambda: choose("stop"),
-            width=18
+        # --- Option 2: Go back {n} images and segment that image ---
+        opt2_frame = ttk.LabelFrame(frame, text="Option 2: Go Back {n} Images & Segment", padding=8)
+        opt2_frame.pack(fill=tk.X, pady=4)
+
+        back_controls = ttk.Frame(opt2_frame)
+        back_controls.pack(fill=tk.X, pady=2)
+
+        ttk.Label(back_controls, text="Go back:").pack(side=tk.LEFT)
+        spin_n = ttk.Spinbox(
+            back_controls,
+            from_=1,
+            to=max(1, max_back),
+            textvariable=back_n_var,
+            width=5
         )
-        btn_stop.pack(side=tk.RIGHT, padx=6, expand=True)
+        spin_n.pack(side=tk.LEFT, padx=4)
+        ttk.Label(back_controls, text="image(s)").pack(side=tk.LEFT, padx=(0, 8))
+
+        init_target = max(0, slice_idx - back_n_var.get())
+        init_tfname = self.filenames[init_target] if init_target < len(self.filenames) else ""
+        lbl_target_info = ttk.Label(
+            back_controls,
+            text=f"➔ Target: Slice {init_target} ({init_tfname})",
+            foreground="#0066cc",
+            font=("Segoe UI", 9, "bold")
+        )
+        lbl_target_info.pack(side=tk.LEFT, padx=4)
+
+        def update_target_lbl(*args):
+            try:
+                n_val = back_n_var.get()
+                t_slice = max(0, slice_idx - n_val)
+                t_fname = self.filenames[t_slice] if t_slice < len(self.filenames) else ""
+                lbl_target_info.config(text=f"➔ Target: Slice {t_slice} ({t_fname})")
+            except (tk.TclError, ValueError):
+                pass
+
+        back_n_var.trace_add("write", update_target_lbl)
+
+        btn_go_back = ttk.Button(
+            opt2_frame,
+            text="⏪ Go Back & Segment That Image",
+            command=lambda: choose("go_back")
+        )
+        btn_go_back.pack(fill=tk.X, pady=(4, 0))
+
+        if slice_idx == 0:
+            spin_n.config(state=tk.DISABLED)
+            btn_go_back.config(state=tk.DISABLED)
+
+        # --- Option 3: End program here ---
+        opt3_frame = ttk.LabelFrame(frame, text="Option 3: End Program", padding=8)
+        opt3_frame.pack(fill=tk.X, pady=4)
+        btn_stop = ttk.Button(
+            opt3_frame,
+            text="⏹ End Program There (Stop Execution)",
+            command=lambda: choose("stop")
+        )
+        btn_stop.pack(fill=tk.X)
 
         self.wait_window(dialog)
 
-        user_choice = choice_var.get()
-        if user_choice == "manual":
-            # Enable manual segmentation on current slice
+        action = choice_var.get()
+        if action == "manual_current":
+            self.is_paused_for_manual = True
+            self.btn_run.config(state=tk.DISABLED)
+            self.btn_stop.config(state=tk.NORMAL)
+            self.btn_resume.config(state=tk.NORMAL)
+            self.set_status(f"PAUSED: Please draw mask for Slice {slice_idx}, then click '✔ Resume'.")
+            messagebox.showinfo(
+                "Segment by Hand",
+                f"Draw the mask for Slice {slice_idx} using the brush or lasso.\n"
+                f"When finished, click the green '✔ Resume' button to continue automatic propagation."
+            )
+        elif action == "go_back":
+            try:
+                n_val = int(back_n_var.get())
+            except (ValueError, tk.TclError):
+                n_val = 1
+            n_val = max(1, min(n_val, max_back))
+            target_slice = max(0, slice_idx - n_val)
+
+            # Invalidate any masks produced after target_slice
+            for s in list(self.masks.keys()):
+                if s > target_slice:
+                    del self.masks[s]
+
+            self.current_slice_idx = target_slice
+            self.scrub_slider.set(target_slice)
+            self.update_slice_view()
+
             self.is_paused_for_manual = True
             self.btn_run.config(state=tk.DISABLED)
             self.btn_stop.config(state=tk.NORMAL)
             self.btn_resume.config(state=tk.NORMAL)
             self.set_status(
-                f"PAUSED: Please draw mask for slice {slice_idx}, then click '✔ Resume'."
+                f"PAUSED: Jumped back {n_val} image(s) to Slice {target_slice}. Please edit/redraw mask, then click '✔ Resume'."
             )
             messagebox.showinfo(
                 "Segment by Hand",
-                f"Draw the mask for slice {slice_idx} using the brush or lasso.\n"
-                f"When finished, click the green '✔ Resume' button to continue automatic propagation."
+                f"Moved back {n_val} image(s) to Slice {target_slice}.\n\n"
+                f"Please edit or redraw the mask for Slice {target_slice}.\n"
+                f"When finished, click '✔ Resume' to restart automatic propagation from Slice {target_slice}."
             )
         else:
-            # Stop execution
+            # End program there
             self.stop_segmentation()
+            self.masks.pop(slice_idx, None)
             self.set_status(f"Stopped at slice {slice_idx}.")
-            if messagebox.askyesno("Save Masks", f"Execution stopped at slice {slice_idx}.\nSave masks generated so far?"):
+            if messagebox.askyesno("Save Masks", f"Execution ended at slice {slice_idx}.\nSave masks generated so far ({len(self.masks)} masks)?"):
                 self.on_save_masks()
 
     def resume_segmentation(self):
@@ -898,20 +1027,25 @@ class PlutoApp(tk.Tk):
         if mask is None or np.count_nonzero(mask) == 0:
             messagebox.showwarning(
                 "Mask Required",
-                f"Please draw a mask on slice {slice_idx} before clicking Resume."
+                f"Please draw a mask on Slice {slice_idx} before clicking Resume."
             )
             return
 
         # Re-characterize the newly hand-drawn mask
         stats = characterize_mask(self.stack[slice_idx], mask)
         if not stats["valid"]:
-            messagebox.showerror("Error", "Drawn mask is empty.")
+            messagebox.showerror("Error", "Drawn mask contains no foreground pixels.")
             return
 
         self.active_yc = stats["yc"]
         self.active_xc = stats["xc"]
         self.active_mean = stats["mean"]
         self.active_std = stats["std"]
+
+        # Discard any stale masks ahead of slice_idx
+        for s in list(self.masks.keys()):
+            if s > slice_idx:
+                del self.masks[s]
 
         # Resume propagation to the next slice
         self.is_paused_for_manual = False
@@ -922,7 +1056,7 @@ class PlutoApp(tk.Tk):
         self.btn_stop.config(state=tk.NORMAL)
         self.btn_resume.config(state=tk.DISABLED)
 
-        self.set_status(f"Resumed segmentation from slice {slice_idx}...")
+        self.set_status(f"Resumed segmentation from Slice {slice_idx}...")
         self.after(50, self._segmentation_step)
 
     def stop_segmentation(self):

@@ -21,9 +21,10 @@ An interactive desktop application for semi-automatic 3D image stack segmentatio
     - Morphological hole filling.
 - **Empty Mask Handling**:
   - Detects if a mask vanishes or fails to expand from its seed.
-  - Pauses execution and prompts the user:
-    - **Stop Execution**: Terminates propagation and preserves generated masks.
-    - **Segment by Hand**: Allows the user to draw the mask on that slice, then click **Resume** to continue propagation automatically.
+  - Pauses execution and prompts the user with 3 options:
+    - **Segment by Hand**: Allows the user to draw the mask on that slice, then click **Resume** to continue.
+    - **Go Back {n} Images & Segment**: Reverts $n$ images (user-selectable), allowing the user to correct an earlier mask and re-propagate forward.
+    - **End Program There**: Terminates propagation and preserves generated masks.
 - **Mask Export**:
   - Saves all masks strictly as **binary PNG files** (`0` background, `255` foreground) into `./masks/{folder_name}`.
 
@@ -81,9 +82,10 @@ python main.py
      - `Max Iterations`: Max dilation steps (default: `40`).
    - Click **"Run Segmentation"**.
 5. **Handling Pauses / Empty Masks**:
-   - If an empty mask or constriction is encountered, a modal dialog appears.
-   - Choose **"Segment by Hand"** to draw the mask on that slice, then click **"Resume"**.
-   - Or choose **"Stop Execution"** to finalize.
+   - If an empty mask or constriction is encountered, a modal dialog appears with 3 choices:
+     - **"Segment Slice by Hand"**: Draw the mask on that slice, then click **"Resume"**.
+     - **"Go Back {n} Images & Segment"**: Select how many images to step back, edit/redraw that earlier slice, then click **"Resume"** to restart propagation.
+     - **"End Program There"**: Finalize and preserve masks up to that point.
 6. **Save Masks**:
    - Click **"Save Masks"** (or accept the automatic prompt when finished).
    - All masks will be written to `./masks/{folder_name}/*.png` as binary PNG files.
