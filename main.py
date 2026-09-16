@@ -67,6 +67,7 @@ class PlutoApp(tk.Tk):
         self.alpha_var = tk.DoubleVar(value=0.8)
         self.k_std_var = tk.DoubleVar(value=2.0)
         self.max_iter_var = tk.IntVar(value=40)
+        self.m_seeds_var = tk.IntVar(value=5)
         self.start_slice_var = tk.IntVar(value=0)
         self.end_slice_var = tk.IntVar(value=0)
         self._syncing_slice: bool = False
@@ -80,6 +81,8 @@ class PlutoApp(tk.Tk):
         self.active_std: float = 0.0
         self.active_yc: int = 0
         self.active_xc: int = 0
+        self.active_spatial_std_y: float = 2.0
+        self.active_spatial_std_x: float = 2.0
 
         # Drawing / Interaction State
         self.tool_mode = tk.StringVar(value="brush")  # 'brush', 'eraser', 'lasso'
@@ -226,6 +229,10 @@ class PlutoApp(tk.Tk):
         ttk.Label(algo_group, text="Max Iterations:").pack(anchor=tk.W)
         spin_iter = ttk.Spinbox(algo_group, from_=1, to=200, textvariable=self.max_iter_var, width=6)
         spin_iter.pack(anchor=tk.W, pady=2)
+
+        ttk.Label(algo_group, text="Seed Points (m, Binormal):").pack(anchor=tk.W)
+        spin_m = ttk.Spinbox(algo_group, from_=1, to=100, textvariable=self.m_seeds_var, width=6)
+        spin_m.pack(anchor=tk.W, pady=2)
 
         # 3. Execution Control Frame
         exec_group = ttk.LabelFrame(parent, text="Segmentation Execution", padding=8)
@@ -789,6 +796,8 @@ class PlutoApp(tk.Tk):
         self.active_xc = initial_stats["xc"]
         self.active_mean = initial_stats["mean"]
         self.active_std = initial_stats["std"]
+        self.active_spatial_std_y = initial_stats.get("spatial_std_y", 2.0)
+        self.active_spatial_std_x = initial_stats.get("spatial_std_x", 2.0)
 
         # Configure state for propagation
         self.is_running = True
@@ -827,6 +836,7 @@ class PlutoApp(tk.Tk):
         alpha = self.alpha_var.get()
         k_std = self.k_std_var.get()
         max_iter = self.max_iter_var.get()
+        m_seeds = max(1, self.m_seeds_var.get())
 
         res = propagate_slice(
             current_slice=current_slice,
@@ -836,7 +846,10 @@ class PlutoApp(tk.Tk):
             std=self.active_std,
             alpha=alpha,
             n_iterations_max=max_iter,
-            k_std=k_std
+            k_std=k_std,
+            m_seeds=m_seeds,
+            spatial_std_y=self.active_spatial_std_y,
+            spatial_std_x=self.active_spatial_std_x,
         )
 
         # Check for empty / failed mask
@@ -850,6 +863,8 @@ class PlutoApp(tk.Tk):
         self.active_xc = res["xc"]
         self.active_mean = res["mean"]
         self.active_std = res["std"]
+        self.active_spatial_std_y = res.get("spatial_std_y", 2.0)
+        self.active_spatial_std_x = res.get("spatial_std_x", 2.0)
 
         # Update view
         self.current_slice_idx = slice_idx
@@ -1061,6 +1076,8 @@ class PlutoApp(tk.Tk):
         self.active_xc = stats["xc"]
         self.active_mean = stats["mean"]
         self.active_std = stats["std"]
+        self.active_spatial_std_y = stats.get("spatial_std_y", 2.0)
+        self.active_spatial_std_x = stats.get("spatial_std_x", 2.0)
 
         # Discard any stale masks ahead of slice_idx
         for s in list(self.masks.keys()):

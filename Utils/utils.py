@@ -116,6 +116,9 @@ def characterize_mask(
     yc = int(np.round(np.mean(ys)))
     xc = int(np.round(np.mean(xs)))
 
+    spatial_std_y = max(1.0, float(np.std(ys))) if len(ys) > 1 else 2.0
+    spatial_std_x = max(1.0, float(np.std(xs))) if len(xs) > 1 else 2.0
+
     foreground_values = slice_img[foreground_indices]
     mean = float(np.mean(foreground_values))
     std = float(np.std(foreground_values))
@@ -125,6 +128,8 @@ def characterize_mask(
         "xc": xc,
         "mean": mean,
         "std": std,
+        "spatial_std_y": spatial_std_y,
+        "spatial_std_x": spatial_std_x,
         "area": int(num_pixels),
         "valid": True,
     }
@@ -149,29 +154,36 @@ def propagate_slice(
     alpha: float = 0.8,
     n_iterations_max: int = 40,
     k_std: float = 2.0,
+    m_seeds: int = 5,
+    spatial_std_y: float = 2.0,
+    spatial_std_x: float = 2.0,
 ) -> Dict[str, Union[np.ndarray, int, float, bool, str, None]]:
     """
     Apply the Pluto adaptive segmentation algorithm to propagate a mask to the current slice:
-    - Uses previous slice centroid (prev_yc, prev_xc) as single seed point.
+    - Seeds on the slice are m points surrounding the center of mass (prev_yc, prev_xc)
+      extracted at random from a binormal distribution centered at the center of mass.
     - Iteratively dilates the candidate mask and excludes pixels outside [mean - k*std, mean + k*std].
     - Stops if area stops growing or max iterations reached.
     - If empty or failed to grow, returns is_empty=True.
     - Otherwise, updates centroid, exponential moving average of mean and std, and fills holes.
 
     :param current_slice: 2D image array of current slice.
-    :param prev_yc: Y centroid of previous mask.
-    :param prev_xc: X centroid of previous mask.
+    :param prev_yc: Y coordinate of center of mass of previous mask.
+    :param prev_xc: X coordinate of center of mass of previous mask.
     :param mean: Moving average mean intensity.
     :param std: Moving average standard deviation of intensity.
     :param alpha: Moving average factor (default 0.8).
     :param n_iterations_max: Max growth iterations (default 40).
     :param k_std: Multiplier for standard deviation interval (default 2.0).
-    :return: Dictionary containing 'mask', 'yc', 'xc', 'mean', 'std', 'area', 'is_empty', 'reason'.
+    :param m_seeds: Number of seed points surrounding the center of mass (default 5).
+    :param spatial_std_y: Vertical spatial spread of the binormal distribution.
+    :param spatial_std_x: Horizontal spatial spread of the binormal distribution.
+    :return: Dictionary containing 'mask', 'yc', 'xc', 'mean', 'std', 'spatial_std_y', 'spatial_std_x', 'area', 'is_empty', 'reason'.
     """
     H, W = current_slice.shape
     empty_mask = np.zeros((H, W), dtype=np.uint8)
 
-    # Check bounds of seed point
+    # Check bounds of center of mass
     if prev_yc is None or prev_xc is None or not (0 <= prev_yc < H and 0 <= prev_xc < W):
         return {
             "mask": empty_mask,
@@ -179,15 +191,27 @@ def propagate_slice(
             "xc": prev_xc,
             "mean": mean,
             "std": std,
+            "spatial_std_y": spatial_std_y,
+            "spatial_std_x": spatial_std_x,
             "area": 0,
             "is_empty": True,
-            "reason": f"Seed point ({prev_yc}, {prev_xc}) is out of bounds for image shape {current_slice.shape}.",
+            "reason": f"Center of mass ({prev_yc}, {prev_xc}) is out of bounds for image shape {current_slice.shape}.",
         }
 
-    # Initial seed point
+    # Initial seed points: m points surrounding center of mass from binormal distribution
     mask_slice = np.zeros((H, W), dtype=np.uint8)
     mask_slice[prev_yc, prev_xc] = 1
-    candidate_region_area = 1
+
+    if m_seeds > 1:
+        # Sample m-1 additional points from 2D binormal distribution centered at (prev_yc, prev_xc)
+        sampled_ys = np.random.normal(loc=prev_yc, scale=max(1.0, spatial_std_y), size=m_seeds - 1)
+        sampled_xs = np.random.normal(loc=prev_xc, scale=max(1.0, spatial_std_x), size=m_seeds - 1)
+        valid_ys = np.clip(np.round(sampled_ys).astype(int), 0, H - 1)
+        valid_xs = np.clip(np.round(sampled_xs).astype(int), 0, W - 1)
+        mask_slice[valid_ys, valid_xs] = 1
+
+    initial_seed_count = int(np.count_nonzero(mask_slice))
+    candidate_region_area = initial_seed_count
 
     low_bound = mean - k_std * std
     high_bound = mean + k_std * std
@@ -210,27 +234,31 @@ def propagate_slice(
         else:
             break
 
-    # Empty mask check: if mask vanished or failed to grow beyond a single pixel
+    # Empty mask check: if mask vanished or failed to grow beyond seeds
     final_nonzero = int(np.count_nonzero(mask_slice))
-    if final_nonzero <= 1:
+    if final_nonzero <= max(1, initial_seed_count):
         return {
             "mask": empty_mask,
             "yc": prev_yc,
             "xc": prev_xc,
             "mean": mean,
             "std": std,
+            "spatial_std_y": spatial_std_y,
+            "spatial_std_x": spatial_std_x,
             "area": 0,
             "is_empty": True,
             "reason": (
-                f"Candidate region failed to grow from seed ({prev_yc}, {prev_xc}) "
+                f"Candidate region failed to grow from {initial_seed_count} binormal seed(s) around center of mass ({prev_yc}, {prev_xc}) "
                 f"under intensity bounds [{low_bound:.2f}, {high_bound:.2f}]."
             ),
         }
 
-    # Extract new centroid
+    # Extract new center of mass and spatial spreads
     ys, xs = np.where(mask_slice == 1)
     new_yc = int(np.round(np.mean(ys)))
     new_xc = int(np.round(np.mean(xs)))
+    new_spatial_std_y = max(1.0, float(np.std(ys))) if len(ys) > 1 else spatial_std_y
+    new_spatial_std_x = max(1.0, float(np.std(xs))) if len(xs) > 1 else spatial_std_x
 
     # Update mean and std with exponential moving average
     foreground_vals = current_slice[mask_slice == 1]
@@ -250,6 +278,8 @@ def propagate_slice(
         "xc": new_xc,
         "mean": new_mean,
         "std": new_std,
+        "spatial_std_y": new_spatial_std_y,
+        "spatial_std_x": new_spatial_std_x,
         "area": final_area,
         "is_empty": False,
         "reason": None,
