@@ -16,7 +16,7 @@ An interactive desktop application for semi-automatic 3D image stack segmentatio
   - Real-time translucent mask overlay with adjustable opacity.
 - **Adaptive Segmentation Propagation**:
   - Propagates segmentation across consecutive slices using the `pluto.py` algorithm:
-    - Initial mask statistical profile ($\mu_0, \sigma_0$, centroid $(y_c, x_c)$).
+    - **$m$ Binormal Seed Points with Gray Value Pre-Filtering**: Seeds for slice $n+1$ are $m$ points surrounding the center of mass of slice $n$, extracted at random from a 2D binormal (Gaussian) distribution $\mathcal{N}((y_c, x_c), \sigma_{\text{seed}}^2 \mathbf{I})$ centered at the previous centroid. Both the number of seeds ($m$) and the dispersion ($\sigma_{\text{seed}}$) are user-configurable in the UI. Furthermore, all selected seeds must **already satisfy the gray values constraint** $[\mu - k\sigma, \mu + k\sigma]$ on the current slice before dilation begins.
     - Iterative dilation bounded by $[\mu - k\sigma, \mu + k\sigma]$.
     - Exponential moving average updates ($\alpha$) for intensity mean and standard deviation.
     - Morphological hole filling.
@@ -78,10 +78,12 @@ python main.py
 4. **Run Segmentation**:
    - Set the range (default is from the current slice to the end of the stack).
    - Adjust hyperparameters if desired:
-     - `Alpha`: Exponential moving average weight (default: `0.8`).
-     - `k * std`: Multiplier for standard deviation bounds (default: `2.0`).
-     - `Max Iterations`: Max dilation steps (default: `40`).
-   - Click **"Run Segmentation"**.
+      - `Alpha`: Exponential moving average weight (default: `0.8`).
+      - `k * std`: Multiplier for standard deviation bounds (default: `2.0`).
+      - `Max Iterations`: Max dilation steps (default: `40`).
+      - `Seed Points (m)`: Number of random seeds sampled from binormal distribution around center of mass (default: `5`).
+      - `Seed Dispersion (sigma)`: Spatial dispersion / standard deviation of the binormal seed distribution (default: `3.0`).
+    - Click **"Run Segmentation"**.
 5. **Handling Pauses / Empty Masks**:
    - If an empty mask or constriction is encountered, a modal dialog appears with 3 choices:
      - **"Segment Slice by Hand"**: Draw the mask on that slice, then click **"Resume"**.

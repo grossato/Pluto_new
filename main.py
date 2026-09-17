@@ -68,6 +68,7 @@ class PlutoApp(tk.Tk):
         self.k_std_var = tk.DoubleVar(value=2.0)
         self.max_iter_var = tk.IntVar(value=40)
         self.m_seeds_var = tk.IntVar(value=5)
+        self.seed_sigma_var = tk.DoubleVar(value=3.0)
         self.start_slice_var = tk.IntVar(value=0)
         self.end_slice_var = tk.IntVar(value=0)
         self._syncing_slice: bool = False
@@ -233,6 +234,10 @@ class PlutoApp(tk.Tk):
         ttk.Label(algo_group, text="Seed Points (m, Binormal):").pack(anchor=tk.W)
         spin_m = ttk.Spinbox(algo_group, from_=1, to=100, textvariable=self.m_seeds_var, width=6)
         spin_m.pack(anchor=tk.W, pady=2)
+
+        ttk.Label(algo_group, text="Seed Dispersion (sigma):").pack(anchor=tk.W)
+        spin_sigma = ttk.Spinbox(algo_group, from_=0.5, to=50.0, increment=0.5, textvariable=self.seed_sigma_var, width=6)
+        spin_sigma.pack(anchor=tk.W, pady=2)
 
         # 3. Execution Control Frame
         exec_group = ttk.LabelFrame(parent, text="Segmentation Execution", padding=8)
@@ -837,6 +842,7 @@ class PlutoApp(tk.Tk):
         k_std = self.k_std_var.get()
         max_iter = self.max_iter_var.get()
         m_seeds = max(1, self.m_seeds_var.get())
+        seed_sigma = max(0.1, self.seed_sigma_var.get())
 
         res = propagate_slice(
             current_slice=current_slice,
@@ -848,6 +854,7 @@ class PlutoApp(tk.Tk):
             n_iterations_max=max_iter,
             k_std=k_std,
             m_seeds=m_seeds,
+            seed_sigma=seed_sigma,
             spatial_std_y=self.active_spatial_std_y,
             spatial_std_x=self.active_spatial_std_x,
         )

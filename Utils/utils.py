@@ -155,13 +155,14 @@ def propagate_slice(
     n_iterations_max: int = 40,
     k_std: float = 2.0,
     m_seeds: int = 5,
-    spatial_std_y: float = 2.0,
-    spatial_std_x: float = 2.0,
+    seed_sigma: float = 3.0,
+    **kwargs,
 ) -> Dict[str, Union[np.ndarray, int, float, bool, str, None]]:
     """
     Apply the Pluto adaptive segmentation algorithm to propagate a mask to the current slice:
-    - Seeds on the slice are m points surrounding the center of mass (prev_yc, prev_xc)
-      extracted at random from a binormal distribution centered at the center of mass.
+    - Seeds on the slice are m points near the center of mass (prev_yc, prev_xc)
+      extracted at random from a binormal distribution with user-defined dispersion (sigma),
+      requiring that all chosen seeds ALREADY satisfy the gray values constraint [mean - k*std, mean + k*std].
     - Iteratively dilates the candidate mask and excludes pixels outside [mean - k*std, mean + k*std].
     - Stops if area stops growing or max iterations reached.
     - If empty or failed to grow, returns is_empty=True.
@@ -175,10 +176,9 @@ def propagate_slice(
     :param alpha: Moving average factor (default 0.8).
     :param n_iterations_max: Max growth iterations (default 40).
     :param k_std: Multiplier for standard deviation interval (default 2.0).
-    :param m_seeds: Number of seed points surrounding the center of mass (default 5).
-    :param spatial_std_y: Vertical spatial spread of the binormal distribution.
-    :param spatial_std_x: Horizontal spatial spread of the binormal distribution.
-    :return: Dictionary containing 'mask', 'yc', 'xc', 'mean', 'std', 'spatial_std_y', 'spatial_std_x', 'area', 'is_empty', 'reason'.
+    :param m_seeds: Number of seed points near the center of mass (default 5).
+    :param seed_sigma: Dispersion (standard deviation) for binormal seed sampling (default 3.0).
+    :return: Dictionary containing 'mask', 'yc', 'xc', 'mean', 'std', 'area', 'is_empty', 'reason'.
     """
     H, W = current_slice.shape
     empty_mask = np.zeros((H, W), dtype=np.uint8)
@@ -191,30 +191,60 @@ def propagate_slice(
             "xc": prev_xc,
             "mean": mean,
             "std": std,
-            "spatial_std_y": spatial_std_y,
-            "spatial_std_x": spatial_std_x,
             "area": 0,
             "is_empty": True,
             "reason": f"Center of mass ({prev_yc}, {prev_xc}) is out of bounds for image shape {current_slice.shape}.",
         }
 
-    # Initial seed points: m points surrounding center of mass from binormal distribution
-    mask_slice = np.zeros((H, W), dtype=np.uint8)
-    mask_slice[prev_yc, prev_xc] = 1
-
-    if m_seeds > 1:
-        # Sample m-1 additional points from 2D binormal distribution centered at (prev_yc, prev_xc)
-        sampled_ys = np.random.normal(loc=prev_yc, scale=max(1.0, spatial_std_y), size=m_seeds - 1)
-        sampled_xs = np.random.normal(loc=prev_xc, scale=max(1.0, spatial_std_x), size=m_seeds - 1)
-        valid_ys = np.clip(np.round(sampled_ys).astype(int), 0, H - 1)
-        valid_xs = np.clip(np.round(sampled_xs).astype(int), 0, W - 1)
-        mask_slice[valid_ys, valid_xs] = 1
-
-    initial_seed_count = int(np.count_nonzero(mask_slice))
-    candidate_region_area = initial_seed_count
-
     low_bound = mean - k_std * std
     high_bound = mean + k_std * std
+
+    # Gather m seed points that strictly satisfy the gray values constraint:
+    # low_bound <= current_slice[y, x] <= high_bound
+    # centered around (prev_yc, prev_xc) with user-defined dispersion sigma.
+    sigma = max(0.1, float(seed_sigma))
+    target_m = max(1, int(m_seeds))
+    valid_seeds = set()
+
+    # 1. Check center of mass itself
+    if low_bound <= current_slice[prev_yc, prev_xc] <= high_bound:
+        valid_seeds.add((prev_yc, prev_xc))
+
+    # 2. Extract random points from binormal distribution centered at (prev_yc, prev_xc)
+    max_attempts = max(200, target_m * 50)
+    for _ in range(max_attempts):
+        if len(valid_seeds) >= target_m:
+            break
+        sy = int(np.round(np.random.normal(loc=prev_yc, scale=sigma)))
+        sx = int(np.round(np.random.normal(loc=prev_xc, scale=sigma)))
+        if 0 <= sy < H and 0 <= sx < W:
+            if low_bound <= current_slice[sy, sx] <= high_bound:
+                valid_seeds.add((sy, sx))
+
+    # If no seeds satisfy the gray values constraints near center of mass:
+    if len(valid_seeds) == 0:
+        return {
+            "mask": empty_mask,
+            "yc": prev_yc,
+            "xc": prev_xc,
+            "mean": mean,
+            "std": std,
+            "area": 0,
+            "is_empty": True,
+            "reason": (
+                f"No seeds satisfying gray values constraints [{low_bound:.2f}, {high_bound:.2f}] "
+                f"could be found near center of mass ({prev_yc}, {prev_xc}) with dispersion sigma={sigma:.2f}. "
+                f"Candidate region failed to grow."
+            ),
+        }
+
+    # Initial seed mask
+    mask_slice = np.zeros((H, W), dtype=np.uint8)
+    for sy, sx in valid_seeds:
+        mask_slice[sy, sx] = 1
+
+    initial_seed_count = len(valid_seeds)
+    candidate_region_area = initial_seed_count
 
     # Iterative dilation and threshold exclusion
     for _ in range(n_iterations_max):
@@ -243,22 +273,22 @@ def propagate_slice(
             "xc": prev_xc,
             "mean": mean,
             "std": std,
-            "spatial_std_y": spatial_std_y,
-            "spatial_std_x": spatial_std_x,
             "area": 0,
             "is_empty": True,
             "reason": (
-                f"Candidate region failed to grow from {initial_seed_count} binormal seed(s) around center of mass ({prev_yc}, {prev_xc}) "
+                f"Candidate region failed to grow from {initial_seed_count} seed(s) around center of mass ({prev_yc}, {prev_xc}) "
                 f"under intensity bounds [{low_bound:.2f}, {high_bound:.2f}]."
             ),
         }
 
-    # Extract new center of mass and spatial spreads
+    # Extract new center of mass
     ys, xs = np.where(mask_slice == 1)
     new_yc = int(np.round(np.mean(ys)))
     new_xc = int(np.round(np.mean(xs)))
-    new_spatial_std_y = max(1.0, float(np.std(ys))) if len(ys) > 1 else spatial_std_y
-    new_spatial_std_x = max(1.0, float(np.std(xs))) if len(xs) > 1 else spatial_std_x
+
+    # Spatial dispersion of segmented mask
+    spatial_std_y = float(np.std(ys)) if len(ys) > 1 else 2.0
+    spatial_std_x = float(np.std(xs)) if len(xs) > 1 else 2.0
 
     # Update mean and std with exponential moving average
     foreground_vals = current_slice[mask_slice == 1]
@@ -278,8 +308,8 @@ def propagate_slice(
         "xc": new_xc,
         "mean": new_mean,
         "std": new_std,
-        "spatial_std_y": new_spatial_std_y,
-        "spatial_std_x": new_spatial_std_x,
+        "spatial_std_y": spatial_std_y,
+        "spatial_std_x": spatial_std_x,
         "area": final_area,
         "is_empty": False,
         "reason": None,
