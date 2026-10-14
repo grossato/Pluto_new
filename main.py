@@ -47,8 +47,8 @@ class PlutoApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Pluto - Adaptive 3D Image Segmentation")
-        self.geometry("1100x820")
-        self.minsize(850, 650)
+        self.geometry("1100x780")
+        self.minsize(850, 600)
 
         # Style configuration
         self.style = ttk.Style(self)
@@ -907,12 +907,10 @@ class PlutoApp(tk.Tk):
 
         dialog = tk.Toplevel(self)
         dialog.title("Empty Mask Encountered")
-        dialog.geometry("540x380")
-        dialog.resizable(False, False)
         dialog.transient(self)
         dialog.grab_set()
 
-        frame = ttk.Frame(dialog, padding=16)
+        frame = ttk.Frame(dialog, padding=(18, 14))
         frame.pack(fill=tk.BOTH, expand=True)
 
         ttk.Label(
@@ -925,7 +923,7 @@ class PlutoApp(tk.Tk):
         ttk.Label(
             frame,
             text=f"Reason: {reason}\n\nPlease choose how to proceed:",
-            wraplength=500
+            wraplength=520
         ).pack(anchor=tk.W, pady=(0, 8))
 
         choice_var = tk.StringVar(value="stop")
@@ -936,7 +934,7 @@ class PlutoApp(tk.Tk):
             dialog.destroy()
 
         # --- Option 1: Segment current slice by hand ---
-        opt1_frame = ttk.LabelFrame(frame, text="Option 1: Segment Current Image by Hand", padding=8)
+        opt1_frame = ttk.LabelFrame(frame, text="Option 1: Segment Current Image by Hand", padding=(10, 8))
         opt1_frame.pack(fill=tk.X, pady=4)
         btn_manual = ttk.Button(
             opt1_frame,
@@ -944,10 +942,10 @@ class PlutoApp(tk.Tk):
             command=lambda: choose("manual_current"),
             style="Accent.TButton"
         )
-        btn_manual.pack(fill=tk.X)
+        btn_manual.pack(fill=tk.X, pady=2)
 
         # --- Option 2: Go back {n} images and segment that image ---
-        opt2_frame = ttk.LabelFrame(frame, text="Option 2: Go Back {n} Images & Segment", padding=8)
+        opt2_frame = ttk.LabelFrame(frame, text="Option 2: Go Back {n} Images & Segment", padding=(10, 8))
         opt2_frame.pack(fill=tk.X, pady=4)
 
         back_controls = ttk.Frame(opt2_frame)
@@ -990,21 +988,41 @@ class PlutoApp(tk.Tk):
             text="⏪ Go Back & Segment That Image",
             command=lambda: choose("go_back")
         )
-        btn_go_back.pack(fill=tk.X, pady=(4, 0))
+        btn_go_back.pack(fill=tk.X, pady=(4, 2))
 
         if slice_idx == 0:
             spin_n.config(state=tk.DISABLED)
             btn_go_back.config(state=tk.DISABLED)
 
         # --- Option 3: End program here ---
-        opt3_frame = ttk.LabelFrame(frame, text="Option 3: End Program", padding=8)
-        opt3_frame.pack(fill=tk.X, pady=4)
+        opt3_frame = ttk.LabelFrame(frame, text="Option 3: End Program", padding=(10, 8))
+        opt3_frame.pack(fill=tk.X, pady=(4, 8))
         btn_stop = ttk.Button(
             opt3_frame,
             text="⏹ End Program There (Stop Execution)",
             command=lambda: choose("stop")
         )
-        btn_stop.pack(fill=tk.X)
+        btn_stop.pack(fill=tk.X, pady=2)
+
+        # Ensure dialog size comfortably accommodates all widgets and center it on parent
+        dialog.update_idletasks()
+        req_w = max(580, dialog.winfo_reqwidth() + 24)
+        req_h = max(520, dialog.winfo_reqheight() + 28)
+
+        dialog.minsize(520, 450)
+        dialog.resizable(True, True)
+
+        try:
+            self.update_idletasks()
+            pw = self.winfo_width()
+            ph = self.winfo_height()
+            px = self.winfo_rootx()
+            py = self.winfo_rooty()
+            pos_x = max(0, px + (pw - req_w) // 2)
+            pos_y = max(0, py + (ph - req_h) // 2)
+            dialog.geometry(f"{req_w}x{req_h}+{pos_x}+{pos_y}")
+        except Exception:
+            dialog.geometry(f"{req_w}x{req_h}")
 
         self.wait_window(dialog)
 
