@@ -1,22 +1,23 @@
 """
 Pluto - Adaptive 3D Image Segmentation Desktop Application
 
-This application wraps the custom adaptive segmentation logic from pluto.py
-into an interactive desktop GUI built with Tkinter and Pillow.
+An interactive desktop application for semi-automatic 3D image stack segmentation.
+This algorithm was originally proposed for segmenting low-contrast FIB-SEM images
+of the lacunocanalicular network (LCN).
 
 Core Features:
 1. Data Loading: Loads 2D image stacks (TIFF, PNG, etc.) from ./data/{folder_name}
    ordered numerically by filename.
 2. User Interface:
    - Scrubbing through slices with slider, arrow keys, and mouse wheel.
-   - Zoom and Pan navigation (Ctrl+Wheel or Zoom buttons).
+   - Zoom and Pan navigation (Zoom In/Out buttons, reset, right-click drag pan).
    - Interactive drawing tools (Brush, Eraser, Polygon/Lasso) to draw masks by hand.
    - Visual mask overlay with adjustable opacity.
 3. Algorithm Execution:
-   - Propagates mask consecutively across slices using pluto.py adaptive logic.
+   - Propagates mask consecutively across slices using adaptive region-growing logic.
 4. Empty Mask Handling:
    - Pauses immediately if an empty mask (or non-growing seed) is encountered.
-   - Notifies user with two options: 'Stop Execution' or 'Segment by Hand'.
+   - Provides recovery options: segment by hand, go back {n} images, or stop execution.
    - Resumes seamlessly after manual correction.
 5. Saving:
    - Exports all masks strictly as binary PNG files into ./masks/{folder_name}.
@@ -1166,9 +1167,9 @@ class PlutoApp(tk.Tk):
         messagebox.showinfo(
             "About Pluto",
             "Pluto - Adaptive 3D Image Segmentation\n\n"
-            "An interactive desktop application for semi-automatic canalicular "
-            "segmentation in 3D microscopy and micro-CT image stacks.\n\n"
-            "Based on the adaptive region-growing and moving-average logic of pluto.py."
+            "An interactive desktop application for semi-automatic 3D image stack segmentation.\n\n"
+            "This algorithm was originally proposed for segmenting low-contrast FIB-SEM images "
+            "of the lacunocanalicular network (LCN)."
         )
 
 

@@ -1,10 +1,13 @@
 """
 Utils module for Pluto Adaptive 3D Image Segmentation.
 
+Originally proposed for semi-automatic segmentation of low-contrast
+FIB-SEM images of the lacunocanalicular network (LCN).
+
 Contains functions for:
 - Loading image stacks with natural numerical ordering.
 - Characterizing masks (mean, std, centroid).
-- Propagating masks across consecutive slices using the Pluto algorithm.
+- Propagating masks across consecutive slices using adaptive region-growing.
 - Saving generated binary masks strictly as binary PNG files.
 """
 

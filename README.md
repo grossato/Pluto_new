@@ -1,6 +1,8 @@
 # Pluto: Adaptive 3D Image Segmentation
 
-An interactive desktop application for semi-automatic 3D image stack segmentation (e.g. canalicular structures in micro-CT and confocal microscopy), wrapping the custom adaptive segmentation logic from `pluto.py`.
+An interactive desktop application for semi-automatic 3D image stack segmentation.
+
+This algorithm was originally proposed for segmenting low-contrast Focused Ion Beam Scanning Electron Microscopy (FIB-SEM) images of the lacunocanalicular network (LCN). It leverages adaptive region-growing and exponential moving average updates across consecutive 2D slices based on local intensity and spatial distributions.
 
 ---
 
@@ -15,7 +17,7 @@ An interactive desktop application for semi-automatic 3D image stack segmentatio
   - Mask management: **Undo (Ctrl+Z)**, **Clear Current Mask**, and **Clear All Masks** (with confirmation).
   - Real-time translucent mask overlay with adjustable opacity.
 - **Adaptive Segmentation Propagation**:
-  - Propagates segmentation across consecutive slices using the `pluto.py` algorithm:
+  - Propagates segmentation across consecutive slices using an adaptive region-growing algorithm:
     - **$m$ Binormal Seed Points with Gray Value Pre-Filtering**: Seeds for slice $n+1$ are $m$ points surrounding the center of mass of slice $n$, extracted at random from a 2D binormal (Gaussian) distribution $\mathcal{N}((y_c, x_c), \sigma_{\text{seed}}^2 \mathbf{I})$ centered at the previous centroid. Both the number of seeds ($m$) and the dispersion ($\sigma_{\text{seed}}$) are user-configurable in the UI. Furthermore, all selected seeds must **already satisfy the gray values constraint** $[\mu - k\sigma, \mu + k\sigma]$ on the current slice before dilation begins.
     - Iterative dilation bounded by $[\mu - k\sigma, \mu + k\sigma]$.
     - Exponential moving average updates ($\alpha$) for intensity mean and standard deviation.
@@ -41,10 +43,7 @@ Pluto/
   │   ├── __init__.py
   │   └── utils.py          # Core I/O, segmentation, and saving logic
   ├── data/                 # Input image stacks (e.g. data/cropped_3_3_1)
-  ├── masks/                # Output binary PNG masks (e.g. masks/cropped_3_3_1)
-  ├── tests/
-  │   └── test_pluto.py     # Unit and integration test suite
-  └── pluto.py              # Original reference script
+  └── masks/                # Output binary PNG masks (e.g. masks/cropped_3_3_1)
 ```
 
 ---
@@ -93,13 +92,4 @@ python main.py
    - Click **"Save Masks"** (or accept the automatic prompt when finished).
    - All masks will be written to `./masks/{folder_name}/*.png` as binary PNG files.
 
----
-
-## Running Tests
-
-Run the test suite to verify data loading, segmentation logic, and binary saving:
-
-```bash
-python -m unittest discover -s tests -p "test_*.py"
-```
 
